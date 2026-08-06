@@ -1,8 +1,13 @@
 //! This module contains code for the short-range component of the Coulomb force.
 
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{_CMP_LT_OQ, _mm256_blendv_ps, _mm256_cmp_ps, _mm256_set1_ps};
 
-use lin_alg::f32::{Vec3, Vec3x8, Vec3x16, f32x8, f32x16};
+use lin_alg::f32::Vec3;
+// SIMD primitives only exist on x86/x86_64 (and require lin_alg's `simd` feature);
+// gate the import to match the x8/x16 functions below so non-x86 targets compile.
+#[cfg(target_arch = "x86_64")]
+use lin_alg::f32::{Vec3x16, Vec3x8, f32x16, f32x8};
 use statrs::function::erf::erfc;
 
 use crate::INV_SQRT_PI;
