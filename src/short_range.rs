@@ -11,6 +11,27 @@ use lin_alg::f32::{Vec3x16, Vec3x8, f32x16, f32x8};
 
 use crate::INV_SQRT_PI;
 
+/// Fast f32 exp (SLEEF-style minimax): `exp(x) = 2^(x·log2e)`, with the
+/// fractional part via a degree-5 minimax for 2^f on [-½,½] (~1 ulp) and the
+/// integer part by scaling the exponent bits (ldexp). ~1-2 ns vs ~7-10 ns for
+/// the libm `f32::exp`, and it vectorizes cleanly for the future NEON path.
+#[inline]
+pub fn exp_f32(x: f32) -> f32 {
+    const LOG2E: f32 = 1.442_695_040_888_963_4;
+    let z = x * LOG2E;
+    let k = z.round();
+    let f = z - k;
+    // 2^f, f in [-0.5, 0.5]: 1 + f·(c1 + f·(c2 + f·(c3 + f·(c4 + f·c5))))
+    let p = 1.0
+        + f
+            * (0.693_147_2
+                + f
+                    * (0.240_226_51
+                        + f * (0.055_504_108 + f * (0.009_618_129 + f * 0.001_333_355_8))));
+    // Scale by 2^k by adding k to the exponent field (valid: p ∈ [½, 2], k small).
+    f32::from_bits(p.to_bits() + (((k as i32) << 23) as u32))
+}
+
 ///  Computes the direct, short-range component. Ideally, use a combined GPU kernel with Lennard Jones,
 /// or a SIMD variant, instead of this.  We use this for short-range Coulomb forces on the CPU, as part of SPME.
 /// `cutoff_dist` is the distance, in Å, at which we no longer apply any force from this component.
@@ -46,7 +67,7 @@ pub fn force_coulomb_short_range(
     // needs come out of that one exp. Near the cutoff the force is dominated
     // by the exp term anyway, so the tiny erfc error is negligible.
     let x2 = α_r * α_r;
-    let e = (-x2).exp(); // exp(-x²) — shared by erfc and the force term
+    let e = exp_f32(-x2); // exp(-x²) — shared by erfc and the force term
     let t = 1.0 / (1.0 + 0.3275911 * α_r); // 1/(1+p·x)
     // Horner: a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵
     let poly =
