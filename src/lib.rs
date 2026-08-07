@@ -79,6 +79,31 @@ pub struct PmeRecip {
     gpu_data: Option<GpuData>,
 }
 
+// Manual Clone: rustfft's `FftPlanner` is not `Clone` (it caches FFT plans), so
+// we copy the scalar/vector state and give the clone a fresh planner — rustfft
+// builds plans lazily on first use, so this is cheap. Used to give each
+// environment point a truly independent copy of a built (solvated+minimized)
+// system, avoiding state carry-over between reused engines.
+impl Clone for PmeRecip {
+    fn clone(&self) -> Self {
+        Self {
+            box_dims: self.box_dims,
+            plan_dims: self.plan_dims,
+            vol: self.vol,
+            alpha: self.alpha,
+            kx: self.kx.clone(),
+            ky: self.ky.clone(),
+            kz: self.kz.clone(),
+            bmod_sq_inv_x: self.bmod_sq_inv_x.clone(),
+            bmod_sq_inv_y: self.bmod_sq_inv_y.clone(),
+            bmod_sq_inv_z: self.bmod_sq_inv_z.clone(),
+            planner: FftPlanner::new(),
+            #[cfg(feature = "cuda")]
+            gpu_data: None,
+        }
+    }
+}
+
 impl PmeRecip {
     pub fn new(
         #[cfg(feature = "cuda")] stream: Option<&Arc<CudaStream>>,
