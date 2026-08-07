@@ -8,7 +8,6 @@ use lin_alg::f32::Vec3;
 // gate the import to match the x8/x16 functions below so non-x86 targets compile.
 #[cfg(target_arch = "x86_64")]
 use lin_alg::f32::{Vec3x16, Vec3x8, f32x16, f32x8};
-use statrs::function::erf::erfc;
 
 use crate::INV_SQRT_PI;
 
@@ -34,15 +33,32 @@ pub fn force_coulomb_short_range(
     }
 
     let α_r = α * dist;
-    let erfc_term = erfc(α_r as f64) as f32;
+
+    // Fast real-space PME kernel. The old code called libm `erfc` (double) and
+    // `.exp()` per pair (~30-40 ns each) — the dominant cost of the CPU
+    // non-bonded loop. We use the Abramowitz & Stegun 7.1.26 identity
+    //
+    //   erfc(x) ≈ (a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵)·exp(-x²),
+    //   t = 1/(1 + p·x)
+    //
+    // (max |error| ≈ 1.5e-7, far tighter than MD needs) with a SINGLE exp and
+    // one division per pair. Both the erfc and the exp(-x²) terms the force
+    // needs come out of that one exp. Near the cutoff the force is dominated
+    // by the exp term anyway, so the tiny erfc error is negligible.
+    let x2 = α_r * α_r;
+    let e = (-x2).exp(); // exp(-x²) — shared by erfc and the force term
+    let t = 1.0 / (1.0 + 0.3275911 * α_r); // 1/(1+p·x)
+    // Horner: a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵
+    let poly =
+        ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
+    let erfc_term = poly * e;
+
     let charge_term = q_0 * q_1;
 
     let energy = charge_term * inv_dist * erfc_term;
 
-    let exp_term = (-α_r * α_r).exp();
-
     let force_mag = charge_term
-        * (erfc_term * inv_dist * inv_dist + 2.0 * α * exp_term * INV_SQRT_PI * inv_dist);
+        * (erfc_term * inv_dist * inv_dist + 2.0 * α * e * INV_SQRT_PI * inv_dist);
 
     (dir * force_mag, energy)
 }
