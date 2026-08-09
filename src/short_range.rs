@@ -17,6 +17,19 @@ use crate::INV_SQRT_PI;
 /// the libm `f32::exp`, and it vectorizes cleanly for the future NEON path.
 #[inline]
 pub fn exp_f32(x: f32) -> f32 {
+    // Guard against extreme / NaN arguments. A diverged MD trajectory can push
+    // x far outside the representable range, and the exponent-bit arithmetic
+    // below would otherwise overflow u32 (panic) or wrap. exp(x) saturates to
+    // 0 / +inf at |x| ≈ 88 in f32 anyway (exp(88) ≈ 1.65e38 ≈ f32::MAX).
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    if x > 88.0 {
+        return f32::INFINITY;
+    }
+    if x < -88.0 {
+        return 0.0;
+    }
     const LOG2E: f32 = 1.442_695_040_888_963_4;
     let z = x * LOG2E;
     let k = z.round();
