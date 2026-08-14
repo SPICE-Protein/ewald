@@ -42,7 +42,7 @@ pub fn exp_f32(x: f32) -> f32 {
                     * (0.240_226_51
                         + f * (0.055_504_108 + f * (0.009_618_129 + f * 0.001_333_355_8))));
     // Scale by 2^k by adding k to the exponent field (valid: p ∈ [½, 2], k small).
-    f32::from_bits(p.to_bits() + (((k as i32) << 23) as u32))
+    f32::from_bits(p.to_bits().wrapping_add(((k as i32) << 23) as u32))
 }
 
 ///  Computes the direct, short-range component. Ideally, use a combined GPU kernel with Lennard Jones,
