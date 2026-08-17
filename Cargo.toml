@@ -46,3 +46,8 @@ cuda = ["cuda_setup", "cudarc", "lin_alg/cuda"]
 cufft = ["cuda"]
 vkfft = ["cuda"]
 
+[profile.release]
+lto = true
+codegen-units = 1
+
+
