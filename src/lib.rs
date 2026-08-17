@@ -631,6 +631,14 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_exp_f32() {
+        for &x in &[-100.0, -88.1, -88.0, -87.9, -10.0, -1.0, -0.5, 0.0, 0.5, 1.0, 10.0, 87.9, 88.0, 88.1, 100.0, f32::NAN] {
+            let res = short_range::exp_f32(x);
+            println!("exp_f32({}) = {}", x, res);
+        }
+    }
 }
 
 /// A utility function to get the (nx, ny, nz) tuple of plan dimensions based
