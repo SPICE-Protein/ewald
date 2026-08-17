@@ -108,18 +108,35 @@ pub fn force_coulomb_short_range_x8(
     // Alternatively, we could use a normal f32 for this, and splat it in-fn.
     α: f32x8,
 ) -> (Vec3x8, f32x8) {
-    let α_r = α * dist;
+    let (safe_dist, safe_inv_dist, safe_q0, safe_q1, keep) = unsafe {
+        use std::arch::x86_64::*;
+        let zero = _mm256_set1_ps(0.0);
+        let one = _mm256_set1_ps(1.0);
+        // Compare 0.0 < dist (i.e. dist > 0.0)
+        let gt_zero = _mm256_cmp_ps(zero, dist.0, _CMP_LT_OQ);
+        let lt_cutoff = _mm256_cmp_ps(dist.0, cutoff_dist.0, _CMP_LT_OQ);
+        let valid = _mm256_and_ps(gt_zero, lt_cutoff);
+        (
+            f32x8(_mm256_blendv_ps(one, dist.0, valid)),
+            f32x8(_mm256_blendv_ps(one, inv_dist.0, valid)),
+            f32x8(_mm256_blendv_ps(zero, q_0.0, valid)),
+            f32x8(_mm256_blendv_ps(zero, q_1.0, valid)),
+            valid,
+        )
+    };
+
+    let α_r = α * safe_dist;
     let erfc_term = α_r.erfc();
 
-    let charge_term = q_0 * q_1;
+    let charge_term = safe_q0 * safe_q1;
 
-    let energy = charge_term * inv_dist * erfc_term;
+    let energy = charge_term * safe_inv_dist * erfc_term;
 
     let exp_term = (-α_r * α_r).exp();
 
     let force_mag = charge_term
-        * (erfc_term * inv_dist * inv_dist
-            + f32x8::splat(2.) * α * exp_term * f32x8::splat(INV_SQRT_PI) * inv_dist);
+        * (erfc_term * safe_inv_dist * safe_inv_dist
+            + f32x8::splat(2.) * α * exp_term * f32x8::splat(INV_SQRT_PI) * safe_inv_dist);
 
     let force = dir * force_mag;
 
@@ -127,7 +144,7 @@ pub fn force_coulomb_short_range_x8(
     // the outside/inside cutoff.
     // per-lane mask: keep where dist < cutoff_dist, else zero
     unsafe {
-        let keep = _mm256_cmp_ps::<{ _CMP_LT_OQ }>(dist.0, cutoff_dist.0);
+        use std::arch::x86_64::*;
         let zero = _mm256_set1_ps(0.0);
 
         let fx = _mm256_blendv_ps(zero, (force.x).0, keep);
@@ -158,18 +175,35 @@ pub fn force_coulomb_short_range_x16(
     // Alternatively, we could use a normal f32 for this, and splat it in-fn.
     α: f32x16,
 ) -> (Vec3x16, f32x16) {
-    let α_r = α * dist;
+    let (safe_dist, safe_inv_dist, safe_q0, safe_q1, keep) = unsafe {
+        use std::arch::x86_64::*;
+        let zero = _mm512_set1_ps(0.0);
+        let one = _mm512_set1_ps(1.0);
+        // Compare 0.0 < dist (i.e. dist > 0.0)
+        let gt_zero: __mmask16 = _mm512_cmp_ps_mask::<{ _CMP_LT_OQ }>(zero, dist.0);
+        let lt_cutoff: __mmask16 = _mm512_cmp_ps_mask::<{ _CMP_LT_OQ }>(dist.0, cutoff_dist.0);
+        let valid: __mmask16 = gt_zero & lt_cutoff;
+        (
+            f32x16(_mm512_mask_blend_ps(valid, one, dist.0)),
+            f32x16(_mm512_mask_blend_ps(valid, one, inv_dist.0)),
+            f32x16(_mm512_mask_blend_ps(valid, zero, q_0.0)),
+            f32x16(_mm512_mask_blend_ps(valid, zero, q_1.0)),
+            valid,
+        )
+    };
+
+    let α_r = α * safe_dist;
     let erfc_term = α_r.erfc();
 
-    let charge_term = q_0 * q_1;
+    let charge_term = safe_q0 * safe_q1;
 
-    let energy = charge_term * inv_dist * erfc_term;
+    let energy = charge_term * safe_inv_dist * erfc_term;
 
     let exp_term = (-α_r * α_r).exp();
 
     let force_mag = charge_term
-        * (erfc_term * inv_dist * inv_dist
-            + f32x16::splat(2.) * α * exp_term * f32x16::splat(INV_SQRT_PI) * inv_dist);
+        * (erfc_term * safe_inv_dist * safe_inv_dist
+            + f32x16::splat(2.) * α * exp_term * f32x16::splat(INV_SQRT_PI) * safe_inv_dist);
 
     let force = dir * force_mag;
 
@@ -178,8 +212,6 @@ pub fn force_coulomb_short_range_x16(
     // per-lane mask: keep where dist < cutoff_dist, else zero
     unsafe {
         use core::arch::x86_64::*;
-        let keep: __mmask16 = _mm512_cmp_ps_mask::<{ _CMP_LT_OQ }>(dist.0, cutoff_dist.0);
-
         let fx = _mm512_maskz_mov_ps(keep, (force.x).0);
         let fy = _mm512_maskz_mov_ps(keep, (force.y).0);
         let fz = _mm512_maskz_mov_ps(keep, (force.z).0);
