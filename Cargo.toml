@@ -1,6 +1,6 @@
 [package]
 name = "ewald"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2024"
 authors = ["David O'Connor <the_alchemist@fastmail.com>"]
 description = "Ewald SPME force calculations"

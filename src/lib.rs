@@ -248,7 +248,8 @@ impl PmeRecip {
         let rho = fft3d_r2c(&mut rho_real, self.plan_dims, &mut self.planner);
 
         let mut phi_k = vec![Complex::new(0.0, 0.0); n_k];
-        let (mut energy, _virial) = self.apply_ghat_and_compute_potential(&rho, &mut phi_k, ny, nzc);
+        let (mut energy, _virial) =
+            self.apply_ghat_and_compute_potential(&rho, &mut phi_k, ny, nzc);
 
         energy += self_energy(q, self.alpha);
 
@@ -262,9 +263,10 @@ impl PmeRecip {
         (f, energy as f32)
     }
 
-    // todo: Updated dec 2025
-    /// Returns (energy, virial). The virial is the isotropic scalar virial W_lr derived from
-    /// the volume derivative of E_recip: W_lr = Σ_k E_k × (1 − k²/(2α²)).
+    /// Returns (energy, virial). The virial is the isotropic scalar virial
+    /// W_lr = Σ_k E_k × (k²/(2α²) − 1) — the volume derivative of E_recip under
+    /// the grid-scales-with-box convention (k ∝ V^-1/3), where the spline
+    /// window term vanishes because k·h = 2πm/N depends only on the mode index.
     fn apply_ghat_and_compute_potential(
         &self,
         rho: &[Complex_],
@@ -326,8 +328,17 @@ impl PmeRecip {
                     local_energy *= 2.0;
                 }
 
-                // Isotropic virial from volume derivative: W_k = E_k × (1 − k²/(2α²))
-                let virial_local = local_energy * (1.0 - k2 as f64 / two_alpha_sq);
+                // Corrected SPME isotropic virial (v1.3.8 pressure fix):
+                //   W_lr = Σ_k E_k × (k²/(2α²) − 1).
+                // The exp(-k²/(4α²)) Gaussian is a function of k·box: under box
+                // volume scaling, k ∝ V^-1/3, so its derivative contributes
+                // +E_k·k²/(2α²). The old formula had this term SIGN-FLIPPED
+                // (E_k×(1−k²/2α²)), overstating |W_lr| by ~2·E_k·k²/(2α²) per
+                // mode. Window (spline-deconvolution |B(k·h)|⁻²) term is
+                // zero under the grid-scales-with-box convention (k·h = 2πm/N
+                // depends only on mode index).
+                let k2w = (k2 as f64) / two_alpha_sq;
+                let virial_local = local_energy * (k2w - 1.0);
 
                 (local_energy, virial_local)
             })
@@ -352,8 +363,7 @@ impl PmeRecip {
         let rho = fft3d_r2c(&mut rho_real, self.plan_dims, &mut self.planner);
 
         let mut phi_k = vec![Complex::new(0.0, 0.0); n_k];
-        let (mut energy, virial) =
-            self.apply_ghat_and_compute_potential(&rho, &mut phi_k, ny, nzc);
+        let (mut energy, virial) = self.apply_ghat_and_compute_potential(&rho, &mut phi_k, ny, nzc);
 
         energy += self_energy(q, self.alpha);
 
@@ -634,7 +644,24 @@ mod tests {
 
     #[test]
     fn test_exp_f32() {
-        for &x in &[-100.0, -88.1, -88.0, -87.9, -10.0, -1.0, -0.5, 0.0, 0.5, 1.0, 10.0, 87.9, 88.0, 88.1, 100.0, f32::NAN] {
+        for &x in &[
+            -100.0,
+            -88.1,
+            -88.0,
+            -87.9,
+            -10.0,
+            -1.0,
+            -0.5,
+            0.0,
+            0.5,
+            1.0,
+            10.0,
+            87.9,
+            88.0,
+            88.1,
+            100.0,
+            f32::NAN,
+        ] {
             let res = short_range::exp_f32(x);
             println!("exp_f32({}) = {}", x, res);
         }

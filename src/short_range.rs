@@ -7,7 +7,7 @@ use lin_alg::f32::Vec3;
 // SIMD primitives only exist on x86/x86_64 (and require lin_alg's `simd` feature);
 // gate the import to match the x8/x16 functions below so non-x86 targets compile.
 #[cfg(target_arch = "x86_64")]
-use lin_alg::f32::{Vec3x16, Vec3x8, f32x16, f32x8};
+use lin_alg::f32::{Vec3x8, Vec3x16, f32x8, f32x16};
 
 use crate::INV_SQRT_PI;
 
@@ -36,11 +36,8 @@ pub fn exp_f32(x: f32) -> f32 {
     let f = z - k;
     // 2^f, f in [-0.5, 0.5]: 1 + f·(c1 + f·(c2 + f·(c3 + f·(c4 + f·c5))))
     let p = 1.0
-        + f
-            * (0.693_147_2
-                + f
-                    * (0.240_226_51
-                        + f * (0.055_504_108 + f * (0.009_618_129 + f * 0.001_333_355_8))));
+        + f * (0.693_147_2
+            + f * (0.240_226_51 + f * (0.055_504_108 + f * (0.009_618_129 + f * 0.001_333_355_8))));
     // Scale by 2^k by adding k to the exponent field (valid: p ∈ [½, 2], k small).
     f32::from_bits(p.to_bits().wrapping_add(((k as i32) << 23) as u32))
 }
@@ -83,16 +80,17 @@ pub fn force_coulomb_short_range(
     let e = exp_f32(-x2); // exp(-x²) — shared by erfc and the force term
     let t = 1.0 / (1.0 + 0.3275911 * α_r); // 1/(1+p·x)
     // Horner: a1·t + a2·t² + a3·t³ + a4·t⁴ + a5·t⁵
-    let poly =
-        ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
+    let poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t
+        + 0.254829592)
+        * t;
     let erfc_term = poly * e;
 
     let charge_term = q_0 * q_1;
 
     let energy = charge_term * inv_dist * erfc_term;
 
-    let force_mag = charge_term
-        * (erfc_term * inv_dist * inv_dist + 2.0 * α * e * INV_SQRT_PI * inv_dist);
+    let force_mag =
+        charge_term * (erfc_term * inv_dist * inv_dist + 2.0 * α * e * INV_SQRT_PI * inv_dist);
 
     (dir * force_mag, energy)
 }
