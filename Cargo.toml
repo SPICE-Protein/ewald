@@ -1,6 +1,6 @@
 [package]
 name = "ewald"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2024"
 authors = ["David O'Connor <the_alchemist@fastmail.com>"]
 description = "Ewald SPME force calculations"
@@ -23,7 +23,9 @@ exclude = [".gitignore"]
 lin_alg = "1.4.3"
 # We use this to get the erf error function for use in the Ewald approximation in MD
 # todo: Way to avoid this dep for something lighter?
-statrs = "0.18.0"
+# `function::erf::erf` needs neither nalgebra nor rand (statrs' default features);
+# dropping them removes a getrandom->wasm-incompatible chain for wasm32 consumers.
+statrs = { version = "0.18.0", default-features = false }
 
 # `realfft` is an augmentation that allows for R2C and C2R functionality.
 rustfft = "6.4.1"
